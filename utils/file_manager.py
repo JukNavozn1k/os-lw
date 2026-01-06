@@ -23,6 +23,12 @@ def append_text(path: str, text: str):
         f.write(text)
 
 
+def clear_file(path: str):
+    ensure_file(path)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("")
+
+
 def read_all_text(path: str) -> str:
     try:
         ensure_file(path)

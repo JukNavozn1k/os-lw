@@ -4,7 +4,7 @@ from tkinter import filedialog
 import queue
 from threads.file_writer import FileWriterThread, TimeWriterThread
 from synchronization.mutex_manager import SharedMutex
-from utils.file_manager import read_all_text
+from utils.file_manager import read_all_text, clear_file
 import os
 
 
@@ -40,6 +40,12 @@ class FileWriteTab(ttk.Frame):
         add_btn = ttk.Button(input_frame, text="Добавить текст", command=self._add_text)
         add_btn.pack(side=tk.LEFT, padx=(5, 10))
 
+        entered_frame = ttk.LabelFrame(container, text="Введённый текст")
+        entered_frame.pack(fill=tk.BOTH, expand=False, pady=(0, 10))
+
+        self.entered_text = tk.Text(entered_frame, height=4, wrap=tk.WORD, state=tk.DISABLED)
+        self.entered_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
         # Controls
         controls = ttk.Frame(container)
         controls.pack(fill=tk.X)
@@ -53,28 +59,15 @@ class FileWriteTab(ttk.Frame):
         ttk.Label(file_picker, textvariable=self._file_path_var).pack(side=tk.LEFT, padx=(6, 6))
         ttk.Button(file_picker, text="...", width=3, command=self._choose_file).pack(side=tk.LEFT)
 
-        self.notebook = ttk.Notebook(container)
-        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
-
-        file_tab = ttk.Frame(self.notebook)
-        entered_tab = ttk.Frame(self.notebook)
-        self.notebook.add(file_tab, text="Файл")
-        self.notebook.add(entered_tab, text="Введённый текст")
-
-        self.file_frame = ttk.LabelFrame(file_tab, text=f"Содержимое файла: {self.file_path}")
-        self.file_frame.pack(fill=tk.BOTH, expand=True)
+        self.file_frame = ttk.LabelFrame(container, text=f"Содержимое файла: {self.file_path}")
+        self.file_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
 
         self.file_text = tk.Text(self.file_frame, height=12, wrap=tk.WORD, state=tk.DISABLED)
         self.file_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self.entered_frame = ttk.LabelFrame(entered_tab, text="Введённый текст")
-        self.entered_frame.pack(fill=tk.BOTH, expand=True)
-
-        self.entered_text = tk.Text(self.entered_frame, height=12, wrap=tk.WORD, state=tk.DISABLED)
-        self.entered_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
         bottom = ttk.Frame(container)
         bottom.pack(fill=tk.X, pady=(6, 0))
+        ttk.Button(bottom, text="Очистить файл", command=self._clear_current_file).pack(side=tk.LEFT)
         ttk.Button(bottom, text="Обновить просмотр файла", command=self._render_file_content).pack(side=tk.RIGHT)
 
     def _thread_controls(self, parent, col, title, thread_getter):
@@ -150,7 +143,7 @@ class FileWriteTab(ttk.Frame):
         if not text:
             return
 
-        self._entered_text += text + "\n"
+        self._entered_text = text
         self._render_entered_text()
         for ch in text:
             self.text_queue.put(ch)
@@ -164,6 +157,11 @@ class FileWriteTab(ttk.Frame):
         self.entered_text.delete("1.0", tk.END)
         self.entered_text.insert("1.0", self._entered_text)
         self.entered_text.configure(state=tk.DISABLED)
+
+    def _clear_current_file(self):
+        with self.mutex:
+            clear_file(self.file_path)
+        self._render_file_content()
 
     def _render_file_content(self):
         content = read_all_text(self.file_path)
