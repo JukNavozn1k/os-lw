@@ -1,0 +1,17 @@
+[project]
+name = "os-lw"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "gleb"}
+]
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "tk (>=0.1.0,<0.2.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
