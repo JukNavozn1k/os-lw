@@ -4,14 +4,17 @@ import itertools
 from utils.buffer import ThreadSafeBuffer
 
 
-class BaseControlledThread(threading.Thread):
+class BaseControlledThread:
     def __init__(self):
-        super().__init__(daemon=True)
+        self._thread: threading.Thread | None = None
         self._pause_event = threading.Event()
         self._pause_event.set()
         self._stop_event = threading.Event()
         self._delay = 0.3
         self.status = "STOP"
+
+    def is_alive(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
 
     def set_delay(self, delay: float):
         self._delay = max(0.0, float(delay))
@@ -31,13 +34,22 @@ class BaseControlledThread(threading.Thread):
         self.status = "STOP"
 
     def start_safe(self):
-        if not self.is_alive():
-            self._stop_event.clear()
-            self._pause_event.set()
-            self.status = "RUNNING"
-            super().start()
-        else:
+        if self.is_alive():
             self.resume()
+            return
+
+        self._stop_event.clear()
+        self._pause_event.set()
+        self.status = "RUNNING"
+
+        self._thread = threading.Thread(target=self._thread_entry, daemon=True)
+        self._thread.start()
+
+    def _thread_entry(self):
+        try:
+            self.run()
+        finally:
+            self.status = "STOP"
 
     def _cooperative_wait(self):
         end = time.time() + self._delay
