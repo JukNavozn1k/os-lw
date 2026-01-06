@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from gui.tab_file_write import FileWriteTab
 from gui.tab_prod_cons import ProdConsTab
+from gui.tab_help import HelpTab
 
 
 class MainWindow(ttk.Frame):
@@ -28,9 +29,11 @@ class MainWindow(ttk.Frame):
 
         self.tab1 = FileWriteTab(notebook)
         self.tab2 = ProdConsTab(notebook)
+        self.tab3 = HelpTab(notebook)
 
         notebook.add(self.tab1, text="Запись в файл")
         notebook.add(self.tab2, text="Производитель-потребитель")
+        notebook.add(self.tab3, text="Справка")
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)

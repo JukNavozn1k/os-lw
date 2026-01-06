@@ -50,25 +50,32 @@ class FileWriteTab(ttk.Frame):
         controls = ttk.Frame(container)
         controls.pack(fill=tk.X)
 
+        controls.columnconfigure(0, weight=1)
+        controls.columnconfigure(1, weight=1)
+        controls.columnconfigure(2, weight=1)
+
         self.user_speed = self._thread_controls(controls, 0, "Поток пользователя", lambda: self.user_thread)
         self.time_speed = self._thread_controls(controls, 1, "Поток времени", lambda: self.time_thread)
 
-        file_picker = ttk.Frame(container)
-        file_picker.pack(fill=tk.X, pady=(10, 0))
-        ttk.Label(file_picker, text="Файл:").pack(side=tk.LEFT)
-        ttk.Label(file_picker, textvariable=self._file_path_var).pack(side=tk.LEFT, padx=(6, 6))
-        ttk.Button(file_picker, text="...", width=3, command=self._choose_file).pack(side=tk.LEFT)
+        file_ctrl = ttk.LabelFrame(controls, text="Файл")
+        file_ctrl.grid(row=0, column=2, sticky="nsew", padx=(10, 0))
+
+        path_row = ttk.Frame(file_ctrl)
+        path_row.pack(fill=tk.X, padx=10, pady=(10, 6))
+        ttk.Label(path_row, text="Путь:").pack(side=tk.LEFT)
+        ttk.Label(path_row, textvariable=self._file_path_var).pack(side=tk.LEFT, padx=(6, 6), fill=tk.X, expand=True)
+        ttk.Button(path_row, text="...", width=3, command=self._choose_file).pack(side=tk.RIGHT)
+
+        btn_row = ttk.Frame(file_ctrl)
+        btn_row.pack(fill=tk.X, padx=10, pady=(0, 10))
+        ttk.Button(btn_row, text="Очистить", command=self._clear_current_file).pack(side=tk.LEFT)
+        ttk.Button(btn_row, text="Обновить", command=self._render_file_content).pack(side=tk.RIGHT)
 
         self.file_frame = ttk.LabelFrame(container, text=f"Содержимое файла: {self.file_path}")
         self.file_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
 
         self.file_text = tk.Text(self.file_frame, height=12, wrap=tk.WORD, state=tk.DISABLED)
         self.file_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        bottom = ttk.Frame(container)
-        bottom.pack(fill=tk.X, pady=(6, 0))
-        ttk.Button(bottom, text="Очистить файл", command=self._clear_current_file).pack(side=tk.LEFT)
-        ttk.Button(bottom, text="Обновить просмотр файла", command=self._render_file_content).pack(side=tk.RIGHT)
 
     def _thread_controls(self, parent, col, title, thread_getter):
         frame = ttk.LabelFrame(parent, text=title)
