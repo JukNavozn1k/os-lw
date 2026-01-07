@@ -10,6 +10,7 @@ class BaseControlledThread:
         self._pause_event = threading.Event()
         self._pause_event.set()
         self._stop_event = threading.Event()
+        self._pulse_event = threading.Event()
         self._delay = 0.3
         self.status = "STOP"
 
@@ -32,6 +33,15 @@ class BaseControlledThread:
         self._stop_event.set()
         self._pause_event.set()
         self.status = "STOP"
+
+    def pulse(self):
+        self._pulse_event.set()
+
+    def consume_pulse(self) -> bool:
+        was = self._pulse_event.is_set()
+        if was:
+            self._pulse_event.clear()
+        return was
 
     def start_safe(self):
         if self.is_alive():
@@ -80,6 +90,7 @@ class ProducerThread(BaseControlledThread):
                     self.on_produced(item)
                 except Exception:
                     pass
+            self.pulse()
             if self._cooperative_wait():
                 break
 
@@ -98,5 +109,7 @@ class ConsumerThread(BaseControlledThread):
                     self.on_consumed(item)
                 except Exception:
                     pass
+            if item is not None:
+                self.pulse()
             if self._cooperative_wait():
                 break

@@ -3,6 +3,7 @@ from tkinter import ttk
 from utils.buffer import ThreadSafeBuffer
 from threads.producer import ProducerThread
 from threads.consumer import ConsumerThread
+import time
 
 
 class ProdConsTab(ttk.Frame):
@@ -62,38 +63,49 @@ class ProdConsTab(ttk.Frame):
         frame = ttk.LabelFrame(parent, text=title)
         frame.pack(fill=tk.X)
 
-        spd = ttk.Scale(frame, from_=0.1, to=2.0, orient=tk.HORIZONTAL)
-        spd.set(0.3)
+        spd = ttk.Scale(frame, from_=0.5, to=5.0, orient=tk.HORIZONTAL)
+        spd.set(1.0)
         ttk.Label(frame, text="Задержка (с)").pack(anchor=tk.W, padx=10, pady=(8, 0))
         spd.pack(fill=tk.X, padx=10)
 
         btns = ttk.Frame(frame)
         btns.pack(fill=tk.X, padx=10, pady=8)
         start_b = ttk.Button(btns, text="Запуск")
-        pause_b = ttk.Button(btns, text="Пауза")
-        resume_b = ttk.Button(btns, text="Возобновить")
         stop_b = ttk.Button(btns, text="Останов")
         start_b.pack(side=tk.LEFT)
-        pause_b.pack(side=tk.LEFT, padx=5)
-        resume_b.pack(side=tk.LEFT)
         stop_b.pack(side=tk.LEFT, padx=5)
 
-        status = ttk.Label(frame, text="STOP", style="Status.STOP.TLabel")
-        status.pack(anchor=tk.W, padx=10, pady=(0, 10))
+        status_row = ttk.Frame(frame)
+        status_row.pack(anchor=tk.W, padx=10, pady=(0, 10), fill=tk.X)
+        status_row.columnconfigure(0, weight=0)
+        status_row.columnconfigure(1, weight=0)
+        status = ttk.Label(status_row, text="STOP", style="Status.STOP.TLabel")
+        status.grid(row=0, column=0, sticky="w")
+        pulse = ttk.Label(status_row, text="●", style="Pulse.STOP.TLabel")
+        pulse.grid(row=0, column=1, sticky="w", padx=(8, 0))
 
         return {
             "frame": frame,
             "speed": spd,
             "start": start_b,
-            "pause": pause_b,
-            "resume": resume_b,
             "stop": stop_b,
             "status": status,
+            "pulse": pulse,
         }
 
     def _wire_threads(self):
         self.producer = ProducerThread(self.buffer, on_produced=self._on_produced)
         self.consumer = ConsumerThread(self.buffer, on_consumed=self._on_consumed)
+
+        prod_active_until = 0.0
+        cons_active_until = 0.0
+
+        def mark_active(is_prod: bool):
+            nonlocal prod_active_until, cons_active_until
+            if is_prod:
+                prod_active_until = time.time() + 0.45
+            else:
+                cons_active_until = time.time() + 0.45
 
         # Wire speeds
         self._prod_controls["speed"].configure(command=lambda v: self.producer.set_delay(float(v)))
@@ -103,25 +115,30 @@ class ProdConsTab(ttk.Frame):
 
         # Wire buttons
         self._prod_controls["start"].configure(command=self.producer.start_safe)
-        self._prod_controls["pause"].configure(command=self.producer.pause)
-        self._prod_controls["resume"].configure(command=self.producer.resume)
         self._prod_controls["stop"].configure(command=self.producer.stop)
 
         self._cons_controls["start"].configure(command=self.consumer.start_safe)
-        self._cons_controls["pause"].configure(command=self.consumer.pause)
-        self._cons_controls["resume"].configure(command=self.consumer.resume)
         self._cons_controls["stop"].configure(command=self.consumer.stop)
 
         # Status polling
         def poll_status():
             for ctrl, th in ((self._prod_controls, self.producer), (self._cons_controls, self.consumer)):
                 st = th.status
-                if st == "RUNNING":
-                    ctrl["status"].configure(text=st, style="Status.OK.TLabel")
-                elif st == "PAUSED":
-                    ctrl["status"].configure(text=st, style="Status.PAUSED.TLabel")
-                else:
+                if st == "STOP":
                     ctrl["status"].configure(text=st, style="Status.STOP.TLabel")
+                    ctrl["pulse"].configure(style="Pulse.STOP.TLabel")
+                else:
+                    if th.consume_pulse():
+                        mark_active(th is self.producer)
+
+                    now = time.time()
+                    active_until = prod_active_until if th is self.producer else cons_active_until
+                    if now < active_until:
+                        ctrl["status"].configure(text=st, style="Status.OK.TLabel")
+                        ctrl["pulse"].configure(style="Pulse.ACTIVE.TLabel")
+                    else:
+                        ctrl["status"].configure(text="WAITING", style="Status.WAIT.TLabel")
+                        ctrl["pulse"].configure(style="Pulse.WAIT.TLabel")
             self.after(300, poll_status)
 
         poll_status()

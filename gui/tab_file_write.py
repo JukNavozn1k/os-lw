@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
 import queue
+import time
 from threads.file_writer import FileWriterThread, TimeWriterThread
 from synchronization.mutex_manager import SharedMutex
 from utils.file_manager import read_all_text, clear_file
@@ -21,7 +22,12 @@ class FileWriteTab(ttk.Frame):
 
         self._refresh_job = None
 
-        self.user_thread = FileWriterThread(self.text_queue, self.file_path, self.mutex)
+        self.user_thread = FileWriterThread(
+            self.text_queue,
+            self.file_path,
+            self.mutex,
+            on_before_write=self._on_before_user_write,
+        )
         self.time_thread = TimeWriterThread(self.file_path, self.mutex)
 
         self._build_ui()
@@ -39,6 +45,9 @@ class FileWriteTab(ttk.Frame):
 
         add_btn = ttk.Button(input_frame, text="Добавить текст", command=self._add_text)
         add_btn.pack(side=tk.LEFT, padx=(5, 10))
+
+        lorem_btn = ttk.Button(input_frame, text="Lorem ipsum", command=self._fill_lorem)
+        lorem_btn.pack(side=tk.LEFT, padx=(0, 10))
 
         entered_frame = ttk.LabelFrame(container, text="Введённый текст")
         entered_frame.pack(fill=tk.BOTH, expand=False, pady=(0, 10))
@@ -82,31 +91,49 @@ class FileWriteTab(ttk.Frame):
         frame.grid(row=0, column=col, sticky="nsew", padx=(0 if col == 0 else 10, 0))
 
         # Speed
-        spd = ttk.Scale(frame, from_=0.1, to=2.0, orient=tk.HORIZONTAL,
+        spd = ttk.Scale(frame, from_=0.5, to=5.0, orient=tk.HORIZONTAL,
                         command=lambda v: thread_getter().set_delay(float(v)))
-        spd.set(0.5)
-        thread_getter().set_delay(0.5)
+        spd.set(1.0)
+        thread_getter().set_delay(1.0)
         ttk.Label(frame, text="Задержка (с)").pack(anchor=tk.W, padx=10, pady=(8, 0))
         spd.pack(fill=tk.X, padx=10)
 
         btns = ttk.Frame(frame)
         btns.pack(fill=tk.X, padx=10, pady=8)
         ttk.Button(btns, text="Запуск", command=lambda: thread_getter().start_safe()).pack(side=tk.LEFT)
-        ttk.Button(btns, text="Пауза", command=lambda: thread_getter().pause()).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btns, text="Возобновить", command=lambda: thread_getter().resume()).pack(side=tk.LEFT)
         ttk.Button(btns, text="Останов", command=lambda: thread_getter().stop()).pack(side=tk.LEFT, padx=5)
 
-        status = ttk.Label(frame, text="STOP", style="Status.STOP.TLabel")
-        status.pack(anchor=tk.W, padx=10, pady=(0, 10))
+        status_row = ttk.Frame(frame)
+        status_row.pack(anchor=tk.W, padx=10, pady=(0, 10), fill=tk.X)
+        status_row.columnconfigure(0, weight=0)
+        status_row.columnconfigure(1, weight=0)
+        status = ttk.Label(status_row, text="STOP", style="Status.STOP.TLabel")
+        status.grid(row=0, column=0, sticky="w")
+        pulse = ttk.Label(status_row, text="●", style="Pulse.STOP.TLabel")
+        pulse.grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+        active_until = 0.0
+
+        def mark_active():
+            nonlocal active_until
+            active_until = time.time() + 0.45
+            pulse.configure(style="Pulse.ACTIVE.TLabel")
 
         def poll_status():
             st = thread_getter().status
-            if st == "RUNNING":
-                status.configure(text=st, style="Status.OK.TLabel")
-            elif st == "PAUSED":
-                status.configure(text=st, style="Status.PAUSED.TLabel")
-            else:
+            if st == "STOP":
                 status.configure(text=st, style="Status.STOP.TLabel")
+                pulse.configure(style="Pulse.STOP.TLabel")
+            else:
+                if thread_getter().consume_pulse():
+                    mark_active()
+
+                if time.time() < active_until:
+                    status.configure(text=st, style="Status.OK.TLabel")
+                    pulse.configure(style="Pulse.ACTIVE.TLabel")
+                else:
+                    status.configure(text="WAITING", style="Status.WAIT.TLabel")
+                    pulse.configure(style="Pulse.WAIT.TLabel")
             self.after(300, poll_status)
 
         poll_status()
@@ -133,7 +160,12 @@ class FileWriteTab(ttk.Frame):
 
         self.file_path = new_path
         self._file_path_var.set(self.file_path)
-        self.user_thread = FileWriterThread(self.text_queue, self.file_path, self.mutex)
+        self.user_thread = FileWriterThread(
+            self.text_queue,
+            self.file_path,
+            self.mutex,
+            on_before_write=self._on_before_user_write,
+        )
         self.time_thread = TimeWriterThread(self.file_path, self.mutex)
 
         if hasattr(self, "user_speed"):
@@ -150,12 +182,39 @@ class FileWriteTab(ttk.Frame):
         if not text:
             return
 
-        self._entered_text = text
+        self._entered_text += text
         self._render_entered_text()
         for ch in text:
             self.text_queue.put(ch)
         self.text_queue.put("\n")
+        self._entered_text += "\n"
+        self._render_entered_text()
         self.entry.delete(0, tk.END)
+
+    def _fill_lorem(self):
+        lorem = (
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. "
+            "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. "
+            "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. "
+            "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."
+        )
+        self.entry.delete(0, tk.END)
+        self.entry.insert(0, lorem)
+        self.entry.focus_set()
+
+    def _on_before_user_write(self, ch: str, ack):
+        def apply():
+            if ch and self._entered_text:
+                if self._entered_text.startswith(ch):
+                    self._entered_text = self._entered_text[1:]
+                else:
+                    idx = self._entered_text.find(ch)
+                    if idx != -1:
+                        self._entered_text = self._entered_text[:idx] + self._entered_text[idx + 1 :]
+            self._render_entered_text()
+            ack.set()
+
+        self.after(0, apply)
 
     def _render_entered_text(self):
         if not hasattr(self, "entered_text"):

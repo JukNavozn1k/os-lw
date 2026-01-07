@@ -12,6 +12,7 @@ class BaseControlledThread:
         self._pause_event = threading.Event()
         self._pause_event.set()  # not paused
         self._stop_event = threading.Event()
+        self._pulse_event = threading.Event()
         self._delay = 0.5
         self.status = "STOP"
 
@@ -34,6 +35,15 @@ class BaseControlledThread:
         self._stop_event.set()
         self._pause_event.set()
         self.status = "STOP"
+
+    def pulse(self):
+        self._pulse_event.set()
+
+    def consume_pulse(self) -> bool:
+        was = self._pulse_event.is_set()
+        if was:
+            self._pulse_event.clear()
+        return was
 
     def start_safe(self):
         if self.is_alive():
@@ -67,11 +77,18 @@ class BaseControlledThread:
 
 
 class FileWriterThread(BaseControlledThread):
-    def __init__(self, input_queue: "queue.Queue[str]", file_path: str, mutex: SharedMutex):
+    def __init__(
+        self,
+        input_queue: "queue.Queue[str]",
+        file_path: str,
+        mutex: SharedMutex,
+        on_before_write=None,
+    ):
         super().__init__()
         self._q = input_queue
         self._file = file_path
         self._mutex = mutex
+        self._on_before_write = on_before_write
 
     def run(self):
         while not self._stop_event.is_set():
@@ -81,9 +98,24 @@ class FileWriterThread(BaseControlledThread):
                 if self._wait_or_stop(self._delay):
                     break
                 continue
+            if self._on_before_write:
+                ack = threading.Event()
+                try:
+                    self._on_before_write(ch, ack)
+                except Exception:
+                    ack.set()
+                while not ack.is_set():
+                    if self._stop_event.is_set():
+                        break
+                    while not self._pause_event.is_set():
+                        if self._stop_event.is_set():
+                            break
+                        time.sleep(0.02)
+                    time.sleep(0.02)
             # critical section: append char
             with self._mutex:
                 append_line_safe(self._file, ch)
+            self.pulse()
             if self._wait_or_stop(self._delay):
                 break
 
@@ -99,5 +131,6 @@ class TimeWriterThread(BaseControlledThread):
             now = datetime.now().strftime("%H:%M:%S")
             with self._mutex:
                 append_line_safe(self._file, now)
+            self.pulse()
             if self._wait_or_stop(self._delay):
                 break

@@ -20,8 +20,12 @@ class MainWindow(ttk.Frame):
         except tk.TclError:
             pass
         style.configure("Status.OK.TLabel", foreground="#0a7d00")
+        style.configure("Status.WAIT.TLabel", foreground="#b36b00")
         style.configure("Status.PAUSED.TLabel", foreground="#b36b00")
         style.configure("Status.STOP.TLabel", foreground="#b30000")
+        style.configure("Pulse.ACTIVE.TLabel", foreground="#0a7d00", font=("Segoe UI", 26, "bold"))
+        style.configure("Pulse.WAIT.TLabel", foreground="#b36b00", font=("Segoe UI", 26, "bold"))
+        style.configure("Pulse.STOP.TLabel", foreground="#b30000", font=("Segoe UI", 26, "bold"))
 
     def _build(self):
         notebook = ttk.Notebook(self)
