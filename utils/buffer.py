@@ -1,6 +1,7 @@
 from collections import deque
 from typing import Deque, Iterable, Optional
 from synchronization.dekker_algorithm import DekkerLock
+from utils.debug_controller import DebugController
 
 
 class ThreadSafeBuffer:
@@ -16,6 +17,12 @@ class ThreadSafeBuffer:
         self._q: Deque[object] = deque()
         self._dekker = DekkerLock()
         self._max_size = max_size
+
+    def set_debug(self, debug: DebugController | None):
+        self._dekker.set_debug(debug)
+
+    def dekker_snapshot(self):
+        return self._dekker.snapshot()
 
     def put(self, item, process_id: int):
         # Wait while full; use Dekker for mutual exclusion of check+append

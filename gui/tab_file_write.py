@@ -6,6 +6,7 @@ import time
 from threads.file_writer import FileWriterThread, TimeWriterThread
 from synchronization.mutex_manager import SharedMutex
 from utils.file_manager import read_all_text, clear_file
+from utils.debug_controller import DebugController
 import os
 
 
@@ -22,13 +23,22 @@ class FileWriteTab(ttk.Frame):
 
         self._refresh_job = None
 
+        self._log_win = None
+        self._log_text = None
+        self._log_job = None
+        self._log_pos = 0
+
+        self._debug = DebugController()
+        self.mutex.set_debug(self._debug)
+
         self.user_thread = FileWriterThread(
             self.text_queue,
             self.file_path,
             self.mutex,
+            process_id=0,
             on_before_write=self._on_before_user_write,
         )
-        self.time_thread = TimeWriterThread(self.file_path, self.mutex)
+        self.time_thread = TimeWriterThread(self.file_path, self.mutex, process_id=1)
 
         self._build_ui()
         self._refresh_file_view()
@@ -36,6 +46,32 @@ class FileWriteTab(ttk.Frame):
     def _build_ui(self):
         container = ttk.Frame(self)
         container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        debug_frame = ttk.LabelFrame(container, text="Debug (мьютекс)")
+        debug_frame.pack(fill=tk.X, pady=(0, 10))
+        dbg_row = ttk.Frame(debug_frame)
+        dbg_row.pack(fill=tk.X, padx=10, pady=8)
+        self._debug_enabled = tk.BooleanVar(value=False)
+        ttk.Checkbutton(dbg_row, text="Включить", variable=self._debug_enabled).pack(side=tk.LEFT)
+        ttk.Button(dbg_row, text="Шаг", command=self._debug.step).pack(side=tk.LEFT, padx=6)
+        ttk.Button(dbg_row, text="Авто", command=self._debug.run).pack(side=tk.LEFT, padx=6)
+        ttk.Button(dbg_row, text="Пауза", command=self._debug.pause).pack(side=tk.LEFT)
+        ttk.Button(dbg_row, text="Лог", command=self._open_log).pack(side=tk.LEFT, padx=6)
+
+        state_row = ttk.Frame(debug_frame)
+        state_row.pack(fill=tk.X, padx=10, pady=(0, 8))
+        self._dbg_point_lbl = ttk.Label(state_row, text="point: -")
+        self._dbg_point_lbl.pack(side=tk.LEFT)
+        self._mutex_state_lbl = ttk.Label(state_row, text="locked: False | owner: None")
+        self._mutex_state_lbl.pack(side=tk.LEFT, padx=(10, 0))
+
+        def on_dbg_toggle(*_):
+            enabled = bool(self._debug_enabled.get())
+            self._debug.set_enabled(enabled)
+            if enabled:
+                self._debug.pause()
+
+        self._debug_enabled.trace_add("write", on_dbg_toggle)
 
         input_frame = ttk.LabelFrame(container, text="Ввод текста")
         input_frame.pack(fill=tk.X, pady=(0, 10))
@@ -85,6 +121,74 @@ class FileWriteTab(ttk.Frame):
 
         self.file_text = tk.Text(self.file_frame, height=12, wrap=tk.WORD, state=tk.DISABLED)
         self.file_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+    def _open_log(self):
+        if self._log_win is not None and self._log_win.winfo_exists():
+            try:
+                self._log_win.lift()
+                self._log_win.focus_force()
+            except Exception:
+                pass
+            return
+
+        self._log_win = tk.Toplevel(self)
+        self._log_win.title("Лог (мьютекс)")
+        self._log_win.geometry("780x420")
+
+        top = ttk.Frame(self._log_win)
+        top.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Button(top, text="Очистить лог", command=self._clear_log).pack(side=tk.LEFT)
+
+        body = ttk.Frame(self._log_win)
+        body.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+        yscroll = ttk.Scrollbar(body, orient=tk.VERTICAL)
+        yscroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self._log_text = tk.Text(body, wrap=tk.NONE, yscrollcommand=yscroll.set)
+        self._log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        yscroll.configure(command=self._log_text.yview)
+
+        self._log_pos = 0
+
+        def on_close():
+            try:
+                if self._log_job is not None:
+                    self.after_cancel(self._log_job)
+            except Exception:
+                pass
+            self._log_job = None
+            self._log_win.destroy()
+
+        self._log_win.protocol("WM_DELETE_WINDOW", on_close)
+        self._poll_log()
+
+    def _clear_log(self):
+        try:
+            self._debug.clear_log()
+        except Exception:
+            pass
+        self._log_pos = 0
+        if self._log_text is not None:
+            self._log_text.delete("1.0", tk.END)
+
+    def _poll_log(self):
+        if self._log_win is None or not self._log_win.winfo_exists():
+            return
+
+        try:
+            lines = self._debug.log_snapshot()
+            if self._log_text is not None and self._log_pos < len(lines):
+                chunk = "\n".join(lines[self._log_pos:])
+                if chunk:
+                    if self._log_pos != 0:
+                        chunk = "\n" + chunk
+                    self._log_text.insert(tk.END, chunk)
+                    self._log_text.see(tk.END)
+                self._log_pos = len(lines)
+        except Exception:
+            pass
+
+        self._log_job = self.after(250, self._poll_log)
 
     def _thread_controls(self, parent, col, title, thread_getter):
         frame = ttk.LabelFrame(parent, text=title)
@@ -164,9 +268,10 @@ class FileWriteTab(ttk.Frame):
             self.text_queue,
             self.file_path,
             self.mutex,
+            process_id=0,
             on_before_write=self._on_before_user_write,
         )
-        self.time_thread = TimeWriterThread(self.file_path, self.mutex)
+        self.time_thread = TimeWriterThread(self.file_path, self.mutex, process_id=1)
 
         if hasattr(self, "user_speed"):
             self.user_thread.set_delay(float(self.user_speed.get()))
@@ -238,6 +343,14 @@ class FileWriteTab(ttk.Frame):
 
     def _refresh_file_view(self):
         self._render_file_content()
+
+        try:
+            point, _state = self._debug.snapshot()
+            self._dbg_point_lbl.configure(text=f"point: {point or '-'}")
+            snap = self.mutex.snapshot()
+            self._mutex_state_lbl.configure(text=f"locked: {snap['locked']} | owner: {snap['owner']}")
+        except Exception:
+            pass
         self._refresh_job = self.after(1000, self._refresh_file_view)
 
     def shutdown(self):

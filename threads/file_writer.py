@@ -82,12 +82,14 @@ class FileWriterThread(BaseControlledThread):
         input_queue: "queue.Queue[str]",
         file_path: str,
         mutex: SharedMutex,
+        process_id: int,
         on_before_write=None,
     ):
         super().__init__()
         self._q = input_queue
         self._file = file_path
         self._mutex = mutex
+        self._process_id = int(process_id)
         self._on_before_write = on_before_write
 
     def run(self):
@@ -113,24 +115,31 @@ class FileWriterThread(BaseControlledThread):
                         time.sleep(0.02)
                     time.sleep(0.02)
             # critical section: append char
-            with self._mutex:
+            self._mutex.acquire(self._process_id)
+            try:
                 append_line_safe(self._file, ch)
+            finally:
+                self._mutex.release(self._process_id)
             self.pulse()
             if self._wait_or_stop(self._delay):
                 break
 
 
 class TimeWriterThread(BaseControlledThread):
-    def __init__(self, file_path: str, mutex: SharedMutex):
+    def __init__(self, file_path: str, mutex: SharedMutex, process_id: int):
         super().__init__()
         self._file = file_path
         self._mutex = mutex
+        self._process_id = int(process_id)
 
     def run(self):
         while not self._stop_event.is_set():
             now = datetime.now().strftime("%H:%M:%S")
-            with self._mutex:
+            self._mutex.acquire(self._process_id)
+            try:
                 append_line_safe(self._file, now)
+            finally:
+                self._mutex.release(self._process_id)
             self.pulse()
             if self._wait_or_stop(self._delay):
                 break
